@@ -1,0 +1,649 @@
+---
+title: "Airbnb"
+output:
+  pdf_document: default
+  word_document: default
+---
+## AirBnB
+Airbnb is an online marketplace and hospitality service where people can rent short-term lodging such as apartments, hostel beds, hotel rooms and cottages. People can also organise or participate in holiday activities and experiences such as walking tours, concerts, workshops and restaurant dining. There are more than 4 million accommodation listings on Airbnb in 191 countries and 65000 cities, with over 260 million check-ins facilitated.
+One downside of relying on Airbnb for travel planning, however, is that listings can be fully booked very quickly, especially those in desirable locations and during peak travel periods. In addition, travellers would have to look through reviews of listings carefully to ensure safety and security as well as to be better informed about the amenities provided by the host.
+The data set is collected from datasets provided by Inside Airbnb, which are sourced from publicly available information from the Airbnb site (“Inside Airbnb. Adding data to the debate,” n.d.). These datasets include detailed information on listings and reviews by Airbnb users, for a number of cities and countries. 
+
+Goals: 1) Data Cleaning. 2) Data Pre-processing 3) Data Visualizing 4) Sentiment analysis 
+
+Hypothesis:
+  1- is there a relationship between location and number of reviews.
+  2- is there a relationship between location and price.
+
+```{r}
+install.packages("tinytex")
+library(tinytex)
+install.packages("ggplot2")
+library("ggplot2")
+install.packages("ggmap")
+library(ggmap)
+install.packages("data.table")
+library("data.table")
+install.packages("devtools") 
+library("devtools")
+install.packages("janitor") #to change from numeric data to date data
+library("janitor")
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+install.packages("tidymodels")
+library(tidymodels)
+install.packages("rgdal")
+library(rgdal)
+install.packages("rgeos")
+library(rgeos)
+install.packages("sp")
+library(sp)
+install.packages("maptools")
+library(maptools)
+install.packages("dplyr")
+library(plyr) # library for dplyr is called plyr not dplyr for some reason
+install.packages("tidyr")
+library(tidyr)
+install.packages("tmap")
+library(tmap)
+install.packages("tm")
+library(tm)
+install.packages("wordcloud")
+library(wordcloud)
+install.packages("tidytext")
+library(tidytext)
+install.packages("matrix")
+library(Matrix)
+install.packages("RColorBrewer")
+library(RColorBrewer)
+
+```
+## Data
+
+The dataset used for this project comes from Insideairbnb.com, an anti-Airbnb lobby group that scrapes Airbnb listings, reviews and calendar data from multiple cities around the world. The dataset was scraped on 9 April 2019 and contains information on all London Airbnb listings that were live on the site on that date (about 80,000). A GeoJSON file of London borough boundaries was also downloaded from the same site.
+The data is quite messy, and has some limitations. The major one is that it only includes the advertised price (sometimes called the ‘sticker’ price). The sticker price is the overall nightly price that is advertised to potential guests, rather than the actual average amount paid per night by previous guests. The advertised prices can be set to any arbitrary amount by the host, and hosts that are less experienced with Airbnb will often set these to very low (e.g. £0) or very high (e.g. £10,000) amounts.
+```{r}
+library(readr)
+location <- read_csv("location.csv",
+    col_types = cols(price = col_number(),
+                     calculated_host_listings_count = col_double(),
+                     availability_365 = col_double()))
+```
+
+```{r}
+location<- subset(location[,c("id","street","neighbourhood","neighbourhood_cleansed","neighbourhood_group_cleansed","city","state","zipcode","market","smart_location","country","country_code","latitude","longitude","is_location_exact","calendar_updated","calendar_last_scraped","number_of_reviews","first_review","last_review","reviews_per_month","property_type","room_type","price","calculated_host_listings_count","availability_365")])
+
+
+#to covert to a datatable to make it easier to work with
+location<-as.data.table(location,) 
+# to double check it is a datatable now
+is.data.table(location)
+
+```
+
+```{r}
+calendar = read_csv("calendar.csv.gz", # 29,480,812 rows
+         n_max = 1000000,
+         col_types = cols(
+           listing_id = col_integer(),
+           date = col_date(format = ""),
+           available = col_logical(),
+           price = col_character(),
+           adjusted_price = col_character(),
+           minimum_nights = col_integer(),
+           maximum_nights = col_integer()
+         ))
+neighbourhoods = read_csv("neighbourhoods.csv",
+                          col_types = cols(
+                            neighbourhood_group = col_logical(),
+                            neighbourhood = col_character()
+                          ))
+listings = read_csv("listings.csv", # 80,946 rows
+                    col_types = cols(
+                      id = col_double(),
+                      name = col_character(),
+                      host_id = col_double(),
+                      host_name = col_character(),
+                      neighbourhood_group = col_logical(),
+                      neighbourhood = col_character(),
+                      latitude = col_double(),
+                      longitude = col_double(),
+                      room_type = col_character(),
+                      price = col_double(),
+                      minimum_nights = col_double(),
+                      number_of_reviews = col_double(),
+                      last_review = col_date(format = ""),
+                      reviews_per_month = col_double(),
+                      calculated_host_listings_count = col_double(),
+                      availability_365 = col_double()
+                    ))
+
+```
+
+the type of data i am working with
+```{r}
+dim(location)
+str(location)
+summary(location)
+sapply(location, function(y) sum(is.na(y)))
+
+```
+
+
+CLEANING LOCATION DATA - PART 1
+ removing unneccesary variables e.g na count is too high or no valuable info
+```{r}
+#all na
+location$neighbourhood_group_cleansed<-NULL 
+# we can use neighbourhood cleansed instead so its not needed.
+location$neighbourhood<- NULL 
+table(location$country_code) 
+# to find if all are GB, if so it can be removed. but there is one ES and three FR need to find where to see if they are outliers.
+#to find if all are UK, if so it can be removed. but there is one spain and three france again. find them to see if it is an anomoly (maybe the same anomoly as the previous one)
+table(location$country)
+# we can see th same listing which has ES also has Spain and there seems to be too many strange inputs, best to probably delete.
+location[(location$country_code!="GB"),]
+#tosubset and keep only the rows whose country_code=GB and country=United Kingdom (remove possible anomolies)
+location <- subset(location, country_code == "GB" & country== "United Kingdom") 
+#location <- subset(location, country_code = "GB")tosubset and keep only the rows which  have GB (better generalisation in case future ones have other codes too) 
+table(location$country_code)
+table(location$country) 
+#now we can check again the frequency table of country code and country to make sure there is nomore anomolies it shows there is no ES or FR and that GB is now 77095 so we know we have removed the anomoly
+#now that i know there is no more obvious anomolies that can be found from the variables country and country_code and it is of no use to me i can delete them.
+location$country<- NULL
+location$country_code<- NULL
+# see how useful market varible is. it shows its not very useful and having looked at the cases where its not london in excel it doesnt show anything interesting. we can remove it.
+table(location$market)
+ #we can remove this now as stated above
+location$market<- NULL
+# again nothing important and info is covered in neighbourhood_cleansed
+location$state<- NULL 
+
+```
+##CLEANING LOCATION DATA - PART 2
+- dealing wioth NA in remaining variables
+- when looking at the frequency tasble of NA we csn see for first review and last review   and reviews per month have the same number of NA. now i need to try and find if there   is a link between them
+- i can see the NAs are in the same rows for all three. at further inspection i can see     that they may correspond to 0 number of reviews. since there cant be an imput for them.
+- to remove the na from those that have no reviews i will replace NA with 0 for those cases
+
+-if the data is an array/ matrix and not a datatable
+-location$reviews_per_month = ifelse(location$number_of_reviews==0, 
+                                    0, location$reviews_per_month)
+
+-we convert to a datatable so this is the format we will use instead
+```{r}
+location[number_of_reviews==0,reviews_per_month:=0]
+#before changing the numeric values into date data we need to manually calculate the reviews per month ourselves to see how accurate it is. we need to do this before chaning to date format because then we are unable to do simple arithmetics with date data.
+location$updated_reviews_per_month <- location$number_of_reviews/((location$calendar_last_scraped - location$first_review)/365*12)
+#we see there is a difference we know ours mathematically is correct so we will replace it with ouroriginal one and remove the column updatedreviews permonth
+location$reviews_per_month <- location$number_of_reviews/((location$calendar_last_scraped - location$first_review)/365*12)
+location$updated_reviews_per_month<- NULL
+#we convert to a datatable so this is the format we will use instead
+location[number_of_reviews==0,reviews_per_month:=0]
+#changing the dates in exccel to date data in R (janitor is used for the code excel_numeric_to_date)
+location$calendar_last_scraped <- excel_numeric_to_date(location$calendar_last_scraped)
+location$first_review <- excel_numeric_to_date(location$first_review)
+location$last_review <- excel_numeric_to_date(location$last_review)
+location <- filter(location, reviews_per_month > 0, room_type > 0, calculated_host_listings_count > 0, availability_365 > 0)
+
+
+
+```
+
+##VISUALLY PRESENTING LOCATION DATA (NUMBER OF LISTINGS PER BOROUGH)
+to make a bar chart of the number of listings in each borough
+ggplot to allow us to know what we are mapping
+geom_bar to specify we want a bar chart
+theme to customize non data aspects such as position of labels, got the borough names to be vertical by setting the angel to 90 degrees, aligned the borougg names by using hjust and vjust and set it to the position i wanted  
+labs to write my own title
+xlab and ylab to change the name of the x and y axis
+
+Question: which areas of London have the most Airbnb properties, and which are the most expensive?
+Answer: Westminster (west of the City) has the most Airbnb properties, followed by Tower Hamlets (east of the City). Inner London boroughs have significantly more listings than outer London boroughs.
+However, the pattern with prices is slightly different. Kensington and Chelsea (to the west of Westminster) is the most expensive area. This is a famously expensive area to live, with some of the highest house prices in the world. Although inner London is generally more expensive than outer London, there are also some more expensive listings spread out to the west of the city along the Thames (which has some very beautiful areas).
+There are very few listings in the very centre of London (as there is relatively little residential property here), but as a result they are very expensive.
+How did I find this out? With a fun library called GeoPandas, which I discovered when working on this project. It’s basically Pandas for geospatial data, and allows you to add area boundaries as vectors (or polygons or shapefiles) as a new column in your dataframe.
+```{r}
+ggplot(location, aes(neighbourhood_cleansed)) +
+  geom_bar(fill = "#0073C2FF") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust =0.5)) +
+  labs(title = "Number of Listings By Area ") +
+  xlab("Boroughs") + ylab("Number of Listings")
+
+```
+
+#CLEANING REVIEWS DATA
+
+```{r}
+sapply(reviews, function(y) sum(is.na(y))) #there is no missing data no cleaning needed
+
+```
+
+#MERGING BOTH DATASETS
+the variable we are merging by must have the same name in both datasets
+```{r}
+names(reviews)
+names(reviews)[1]<- "id"
+All_reviews<- merge(x=reviews,y=location,by="id",all.x=TRUE)
+View(All_reviews)
+
+```
+```{r}
+
+names(listings)
+names(listings)[1]<- "id"
+All_data<- merge(x=listings,y=location,by="id",all.x=TRUE)
+View(All_data)
+```
+
+#VISUALLY PRESENTING ALL-REVIEWS DATA (NUMBER OF REVIEWS PER BOROUGH)
+to get bar chart of number of reviews per borough
+just changed location to All_reviews
+```{r}
+ggplot(All_reviews, aes(neighbourhood_cleansed)) +
+  geom_bar(fill = "#0073C2FF") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust =0.5)) +
+  labs(title = "Number of Listings By Area ") +
+  xlab("Boroughs") + ylab("Number of Listings")
+
+```
+#plotting the points on a map
+```{r}
+mydata = data.frame(mylat=All_reviews$latitude, mylog=All_reviews$longitude)
+ldn1 <- readOGR("shapeF", layer = "London_Borough_Excluding_MHW")
+ldn1.wgs84 <- spTransform(ldn1, CRS("+init=epsg:4326"))
+map1 <- ggplot(ldn1.wgs84) +
+  geom_polygon(aes(x = long, y = lat, group = group), fill = "white", colour = "black") + 
+  geom_point(data = mydata, aes(x=mylog, y=mylat), col="blue", alpha=.1, size=.1)
+map1 + labs(x = "Longitude", y = "Latitude", title = "Map of Greater London with the borough boundaries")
+
+```
+#Clearer Map of reviews per location
+```{r}
+map1 <- ggplot(data=mydata)
+map1 <- map1 +geom_polygon(aes(x = long, y = lat, group = group), fill = "white", colour = "black",data=ldn1.wgs84)
+
+```
+
+```{r}
+map1<- map1 + stat_binhex(mapping = aes(x=mylog, y=mylat,fill=log(..count..)),binwidth=0.01) #+scale_fill_gradient(low="#08306b",high="#f7fbff")
+map1 <- map1 +geom_polygon(aes(x = long, y = lat, group = group), fill=alpha("white",0), colour = "white",data=ldn1.wgs84)
+map1 + labs(x = "Longitude", y = "Latitude", title = "Map of Greater London with the borough boundaries")
+
+```
+
+```{r}
+map1<- map1 + stat_binhex(mapping = aes(x=mylog, y=mylat,fill=log(..count..)),binwidth=0.01) #+scale_fill_gradient(low="#08306b",high="#f7fbff")
+map1 <- map1 +geom_polygon(aes(x = long, y = lat, group = group), fill=alpha("white",0), colour = "white",data=ldn1.wgs84)
+map1 + labs(x = "Longitude", y = "Latitude", title = "Map of Greater London with the borough boundaries")
+
+```
+# Kernel Density Estimates of Map of Greater London with the borough boundaries
+```{r}
+library("MASS")
+mydensity <- kde2d(mydata$mylog,mydata$mylat)
+map2 <- ggplot(data=mydata)
+map2 <- map2 +geom_polygon(aes(x = long, y = lat, group = group), fill = "white", colour = "black",data=ldn1.wgs84)
+map2<- map2 + stat_density_2d(mapping = aes(x=mylog, y=mylat)) #+scale_fill_gradient(low="#08306b",high="#f7fbff")
+map2 <- map2 +geom_polygon(aes(x = long, y = lat, group = group), fill=alpha("white",0), colour = "white",data=ldn1.wgs84)
+map2 + labs(x = "Longitude", y = "Latitude", title = "Kernel Density Estimates of Map of Greater London with the borough boundaries")
+
+```
+
+
+get the x and y values for the most dense location to set it as our point of centrality
+```{r}
+which(mydensity$z == max(mydensity$z),arr.ind=TRUE)
+c(mydensity$x[11],mydensity$y[15])
+
+```
+#SPLITTING DATA BY DATE
+
+first try: making a seperate data.frame, didnt connect well. didnt merge properly the new values came up as NA
+class(All_reviews$date)
+new_date<-as.Date(All_reviews$date, format = "%d / %m / %Y")
+df <- data.frame(date = new_date,
+                 year = as.numeric(format(new_date, format = "%Y")),
+                month = as.numeric(format(new_date, format = "%m")),
+                 day = as.numeric(format(new_date, format = "%d")))
+View(df)
+All_reviews<- merge(x=All_reviews,y=df,by="date",all.x=TRUE)
+
+
+second try: creating it with in the dataframe All_reviews and only using the year. wored well and simpler code
+```{r}
+All_reviews$date<-as.Date(All_reviews$date, format = "%d / %m / %Y") #defining th eorder of the date structure for r to know hpw to work with it
+All_reviews$year <-  as.numeric(format(All_reviews$date, format = "%Y")) #setting a new variable which only looks at the year
+
+table(All_reviews$year) #one value in 2009, no point in including it since nothing to compare
+plot(table(All_reviews$year),type= "o" ,xlab = "year", ylab = "number of reviews", main= "Number of Reviews per Year")
+
+```
+
+#stacked
+```{r}
+ggplot(borough_year, aes(fill=year, y=freq, x=neighbourhood_cleansed)) + 
+  geom_bar( stat="identity") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust =0.5)) +
+  labs(title = "STACKED: Number of Listings By Area Slit by Year") +
+  xlab("Boroughs") + ylab("Number of Reviews")
+
+```
+
+#stacked percentage
+```{r}
+ggplot(borough_year, aes(fill=year, y=freq, x=neighbourhood_cleansed)) + 
+  geom_bar( stat="identity", position="fill") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust =0.5)) +
+  labs(title = "STACKED PERCENTAGE: Number of Listings By Area Slit by Year") +
+  xlab("Boroughs") + ylab("Number of Reviews")
+
+```
+Next, central ponit as the middle of the map is pointed and avg coordinate are pointed to find the which location has more reviews after find the number of reviews per locations  density of reviews are plotted on map. and compare with other locations to check wether reviews are affecting the prices.
+CENTRALITY 1: basic centrality, setting the central point as the middle of the map
+```{r}
+mid.latitude<- min(location$latitude)+max(location$latitude)
+mid.longitude<- max(location$longitude)+max(location$longitude)
+location$centrality_1<- sqrt((mid.latitude-location$latitude)^2+(mid.longitude-location$longitude)^2)
+
+```
+
+CENTRALITY 2: setting the cenral point as the average coordinate of all points
+```{r}
+avg.lat<- mean(location$latitude)
+avg.long<- mean(location$longitude)
+location$centrality_2<- sqrt((avg.lat-location$latitude)^2+(avg.long-location$longitude)^2)
+
+```
+
+CENTRALITY 3: setting the cenral point as the average coordinate of points in westminster
+finding the borough with most listings using a frequency table
+```{r}
+table(location$neighbourhood_cleansed)
+ggplot(data=location, aes(x=location$neighbourhood_cleansed))+geom_bar()
+
+```
+By, the centrality we found thast westminsterthat is 8749 has more count of reviews and  sutton has less review with 247. and now we check if reviews are affecting prices are not.
+now that we know westminster is has the highest frequency we will use the average point in westminster as the central point.
+```{r}
+westminster.plots<-location[location$neighbourhood_cleansed=="Westminster",]
+avg.lat.westminster<- mean(westminster.plots$latitude)
+avg.long.westminster<- mean(westminster.plots$longitude)
+location$centrality_3<- sqrt((avg.lat.westminster-location$latitude)^2+(avg.long.westminster-location$longitude)^2)
+
+```
+
+CENTRALITY 4: setting the cenral point as the area with highest kernel density
+```{r}
+klat= mydensity$y[15] # 51.5149167
+klon= mydensity$x[11] # -0.1790583
+location$centrality_4<- sqrt((klat-location$latitude)^2+(klon-location$longitude)^2)
+
+```
+
+sidenote: table(All_reviews$neighbourhood_cleansed)
+          #table(All_reviews$neighbourhood_cleansed)/table(location$neighbourhood_cleansed)
+```{r}
+hist(location$centrality_4)
+p = ggplot(location, aes(x=centrality_4,y=reviews_per_month))
+p + geom_point(col=4, alpha=0.1)
+qqnorm(location$centrality_4)
+
+
+
+ks.test(location$centrality_4, location$reviews_per_month, alternative = "greater")
+cor.test(location$centrality_4, location$reviews_per_month,method = "spearman")
+
+
+ggplot(location, aes(x=centrality_4,y=reviews_per_month)) +
+          geom_point()
+
+
+
+
+#ggscatter(location, x="centrality_4", y="reviews_per_month", 
+#          +           add = "reg.line", conf.int = TRUE, 
+#          +           cor.coef = TRUE, cor.method = "spearman")
+
+
+location$newprice<- as.numeric(sub("\\£","", location$price))
+
+```
+price are compared basced on the centrality. 
+```{r}
+ggplot(location, aes(y=price, x=centrality_4)) + 
+  geom_point( stat="identity") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust =0.5)) +
+  labs(title = "Price by location") +
+  xlab("centrality_4") + ylab("price")
+ 
+
+
+      
+```
+In the above grap we can clearly see that reviews are affecting the prices. the area which has more reviews is more priced.
+First read in the shapefile, using the path to the shapefile and the shapefile name minus the
+ extension as arguments
+```{r}
+shapefile <- readOGR("shape", "London_Ward")
+
+```
+
+Next the shapefile has to be converted to a dataframe for use in ggplot2
+```{r}
+shapefile_df <- fortify(shapefile)
+
+shapefile_df$myfill = rnorm( nrow(shapefile_df) )
+
+```
+
+Now the shapefile can be plotted as either a geom_path or a geom_polygon.
+ Paths handle clipping better. Polygons can be filled.
+ You need the aesthetics long, lat, and group.
+```{r}
+map <- ggplot() +
+  geom_polygon(data = shapefile_df, 
+            aes(x = long, y = lat, group = group, fill = myfill),
+            color = 'gray', size = .2)
+
+print(map) 
+
+```
+
+ Using the ggplot2 function coord_map will make things look better and it will also let you change
+ the projection. But sometimes with large shapefiles it makes everything blow up.
+`
+```{r}
+install.packages("mapproj")
+library(mapproj)
+map_projected <- map +
+  coord_map()
+print(map_projected)
+
+```
+
+#Model :
+liner regression model is built for the prices and by reviews.
+
+```{r}
+calendar = calendar %>% 
+  mutate(price2 = as.numeric(gsub("^\\$|,", "", price)),
+         adjusted_price2 = as.numeric(gsub("^\\$|,", "", adjusted_price)),
+         discount2 = 1 - (adjusted_price2 / price2))
+
+
+```
+
+
+```{r}
+
+ggplot(data = All_reviews, mapping = aes(x = reviews_per_month , y = price)) +
+  geom_jitter()
+```
+
+Linear regression:
+```{r}
+library(modelr)
+location = location %>% 
+  mutate(price = ifelse(price == 0, NA, price)) %>% 
+  mutate(intercept = 1)
+model_1 = lm(log(reviews_per_month) ~ -1 + intercept:centrality_1 + intercept:room_type + intercept:cut(calculated_host_listings_count, 5) + intercept:cut(availability_365, 5),
+           data = location)
+summary(model_1)
+```
+```{r}
+model_2 = lm(log(reviews_per_month.x) ~ -1 + intercept:centrality_2 + intercept:room_type.y + intercept:cut(calculated_host_listings_count, 5) + intercept:cut(availability_365, 5), 
+           data = All_data)
+summary(model_2)
+
+```
+```{r}
+model_3 = lm(log(reviews_per_month.x) ~ -1 + intercept:centrality_3 + intercept:room_type.y + intercept:cut(calculated_host_listings_count, 5) + intercept:cut(availability_365, 5), 
+           data = All_data)
+summary(model_3)
+
+```
+```{r}
+model_4 = lm(log(reviews_per_month.x) ~ -1 + intercept:centrality_4 + intercept:room_type.y + intercept:cut(calculated_host_listings_count, 5) + intercept:cut(availability_365, 5), 
+           data = All_data)
+summary(model_4)
+```
+```{r}
+model_5 = lm(log(reviews_per_month.x) ~ -1 + intercept:neighbourhood_cleansed + intercept:room_type.y + intercept:cut(calculated_host_listings_count, 5) + intercept:cut(availability_365, 5), data = All_data)
+summary(model_5)
+```
+```{r}
+library(modelr)
+All_data = All_data %>% 
+  mutate(price.x = ifelse(price.x == 0, NA, price.x)) %>% 
+  mutate(intercept = 1)
+
+modellr = lm(log(reviews_per_month.x) ~ -1 + intercept:neighbourhood_cleansed + intercept:room_type.y + intercept:cut(calculated_host_listings_count, 5) + intercept:cut(availability_365, 5), data = All_data)
+
+All_data = All_data %>% 
+  modelr::add_residuals(model)
+summary(model)
+
+```
+
+if location has a relationship to price
+```{r}
+model_6 = lm(log(price.x) ~ -1 + intercept:centrality_1 + intercept:room_type.y + intercept:cut(calculated_host_listings_count, 5) + intercept:cut(availability_365, 5), 
+           data = All_data)
+summary(model_6)
+
+```
+```{r}
+model_7 = lm(log(price.x) ~ -1 + intercept: centrality_2 + intercept:room_type.y + intercept:cut(calculated_host_listings_count, 5) + intercept:cut(availability_365, 5), 
+           data = All_data)
+summary(model_7)
+
+```
+```{r}
+model_8 = lm(log(price.x) ~ -1 + intercept:centrality_3 + intercept:room_type.y + intercept:cut(calculated_host_listings_count, 5) + intercept:cut(availability_365, 5), 
+           data = All_data)
+summary(model_8)
+
+```
+```{r}
+model_9 = lm(log(price.x) ~ -1 + intercept:centrality_4 + intercept:room_type.y + intercept:cut(calculated_host_listings_count, 5) + intercept:cut(availability_365, 5), 
+           data = All_data)
+summary(model_9)
+
+```
+```{r}
+model_10 = lm(log(price.x) ~ -1 + intercept:neighbourhood_cleansed + intercept:room_type.y + intercept:cut(calculated_host_listings_count, 5) + intercept:cut(availability_365, 5), data = All_data)
+summary(model_10)
+```
+```{r}
+anova(model_1,model_2)
+```
+```{r}
+anova(model_1,model_3)
+```
+```{r}
+anova(model_1,model_4)
+```
+```{r}
+anova(model_1,model_5)
+```
+```{r}
+anova(model_1,model_2,model_3,model_4,model_5,model_6,model_7,model_8,model_9,model_10)
+```
+By, Comparing the all the 10 models model_10 has the best linear regression model with adjected R square is 0.9867 and standaded error-0.5115. and model_4 has bad fit with adjected R square 0.3829 and standard error-1.333.
+
+```{r}
+install.packages("modelr")
+library(modelr)
+All_data = All_data %>% 
+  mutate(price.x = ifelse(price.x == 0, NA, price.x)) %>% 
+  mutate(intercept = 1)
+
+model = lm(log(price.x) ~ -1 + intercept:neighbourhood + intercept:room_type.y + intercept:cut(calculated_host_listings_count, 5) + intercept:cut(availability_365, 5), 
+           data = All_data)
+
+All_data = All_data %>% 
+  modelr::add_residuals(model)
+summary(model)
+
+```
+- Type of room booking by lat, long locations plotted on london borough boundaries.
+```{r}
+install.packages("hexbin")
+library(hexbin)
+map1<- map1 + stat_binhex(mapping = aes(x=mylog, y=mylat,fill=log(..count..)),binwidth=0.01) #+scale_fill_gradient(low="#08306b",high="#f7fbff")
+map1 <- map1 +geom_polygon(aes(x = long, y = lat, group = group), fill=alpha("white",0), colour = "white",data=ldn1.wgs84)
+map1 + labs(x = "Longitude", y = "Latitude", title = "Map of Greater London with the borough boundaries")
+map1 + geom_point(data = listings, aes(longitude, latitude))
+map1 +
+  geom_density_2d(data = listings %>% 
+                    filter(room_type %in% c("Entire home/apt", "Private room")),
+                  aes(x = longitude, y = latitude, colour = room_type),
+                  bins = 20)
+
+```
+```{r}
+map1 +
+  geom_point(data = listings %>% 
+               # sample_n(100) %>% 
+               filter(room_type %in% c("Entire home/apt", "Private room")),
+             aes(x = longitude, y = latitude, colour = room_type),
+             size = 0.5,
+             alpha = 0.1)
+
+```
+
+```{r}
+install.packages("ezplot")
+library(ezplot)
+g = map1 +
+  geom_point(data = listings %>%  
+               # sample_n(100) %>%
+               filter(room_type %in% c("Entire home/apt", "Private room")) %>%
+               group_by(room_type) %>%
+               mutate(price = pmin(price, quantile(price, 0.97, na.rm = TRUE)),
+                      index = price / max(price, na.rm = TRUE)) %>% 
+               arrange(index) %>% 
+               identity,
+             aes(x = longitude, y = latitude,
+                 colour = index),
+             size = 2,
+             shape = 16,
+             alpha = 0.2) +
+  facet_wrap(~ room_type) +
+  scale_colour_gradientn("Price Index", colours = ezplot::ez_jet(100)) +
+  theme_minimal(base_size = 18)
+  # theme(axis.text = element_blank(),
+  #       axis.ticks = element_blank()) +
+  # theme(legend.position = "none")
+g
+
+
+```
+
+Conculsion:
+To sum up, in the framework, i analyzed Airbnb listings from London, extracted from www.insideairbnb.com. Objective was to implement Linear or generalized linear models, so as to approximate prices of listings conditional to explanatory variables which would provide the optimal equilibrium between prices and locations and reviews by area.
+And four centrality are created by taking the central location so, as to find the which location has more reviews and which has less reviews. and the listings having less reviews is affecting the price. and we can suggest the best match for user for booking in good place.
+Towards this orientation, i cleaned and formulated the data so they would be apt for data analysis,next step was to plot the dta. plotting enables us to distinguish relationships between reviews and location. and number of listings by location and comparied by price range. the project was mostly focused on the price changes depending on the locations and is reviews affecting the prices.the procedure was conducted using linera algorithm transformation for the response variable, so as final model is the most efficient, unbiased and consistent.
+
